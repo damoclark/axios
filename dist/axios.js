@@ -1,4 +1,4 @@
-/* axios v0.13.1 | (c) 2016 by Matt Zabriskie */
+/* axiosus v0.1.0+0.13.1 | (c) 2016 Damien Clark | Axios (c) 2016 Matt Zabriskie */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
 		module.exports = factory();
@@ -101,7 +101,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	axios.all = function all(promises) {
 	  return Promise.all(promises);
 	};
-	axios.spread = __webpack_require__(21);
+	axios.spread = __webpack_require__(23);
 
 
 /***/ },
@@ -434,10 +434,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	
 	var defaults = __webpack_require__(5);
 	var utils = __webpack_require__(2);
-	var InterceptorManager = __webpack_require__(7);
-	var dispatchRequest = __webpack_require__(8);
-	var isAbsoluteURL = __webpack_require__(19);
-	var combineURLs = __webpack_require__(20);
+	var InterceptorManager = __webpack_require__(17);
+	var dispatchRequest = __webpack_require__(18);
+	var isAbsoluteURL = __webpack_require__(21);
+	var combineURLs = __webpack_require__(22);
 	
 	/**
 	 * Create a new instance of Axios
@@ -591,7 +591,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	
 	  validateStatus: function validateStatus(status) {
 	    return status >= 200 && status < 300;
-	  }
+	  },
+	
+	  // Make default adapter GM/TM if running under such an environment
+	  adapter: (typeof GM_xmlhttpRequest === 'function') ? __webpack_require__(7) : undefined /*eslint camelcase:0*/
+	
 	};
 
 
@@ -615,6 +619,668 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 7 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var GmXhr = __webpack_require__(8);
+	var utils = __webpack_require__(2);
+	var settle = __webpack_require__(9);
+	var buildURL = __webpack_require__(12);
+	var parseHeaders = __webpack_require__(13);
+	var isURLSameOrigin = __webpack_require__(14);
+	var createError = __webpack_require__(10);
+	var btoa = (typeof window !== 'undefined' && window.btoa) || __webpack_require__(15);
+	
+	module.exports = function gmAdapter(config) {
+	  return new Promise(function dispatchXhrRequest(resolve, reject) {
+	    var requestData = config.data;
+	    var requestHeaders = config.headers;
+	
+	    if (utils.isFormData(requestData)) {
+	      delete requestHeaders['Content-Type']; // Let the browser set it
+	    }
+	
+	    var request = new GmXhr();
+	    var loadEvent = 'onreadystatechange';
+	    var xDomain = false;
+	
+	    // For IE 8/9 CORS support
+	    // Only supports POST and GET calls and doesn't returns the response headers.
+	    // DON'T do this for testing b/c XMLHttpRequest is mocked, not XDomainRequest.
+	    if (("production") !== 'test' &&
+	        typeof window !== 'undefined' &&
+	        window.XDomainRequest && !('withCredentials' in request) &&
+	        !isURLSameOrigin(config.url)) {
+	      request = new window.XDomainRequest();
+	      loadEvent = 'onload';
+	      xDomain = true;
+	      request.onprogress = function handleProgress() {};
+	      request.ontimeout = function handleTimeout() {};
+	    }
+	
+	    // HTTP basic authentication
+	    if (config.auth) {
+	      var username = config.auth.username || '';
+	      var password = config.auth.password || '';
+	      requestHeaders.Authorization = 'Basic ' + btoa(username + ':' + password);
+	    }
+	
+	    request.open(config.method.toUpperCase(), buildURL(config.url, config.params, config.paramsSerializer), true);
+	
+	    // Set the request timeout in MS
+	    request.timeout = config.timeout;
+	
+	    // Listen for ready state
+	    request[loadEvent] = function handleLoad() {
+	      if (!request || (request.readyState !== 4 && !xDomain)) {
+	        return;
+	      }
+	
+	      // The request errored out and we didn't get a response, this will be
+	      // handled by onerror instead
+	      if (request.status === 0) {
+	        return;
+	      }
+	
+	      // Prepare the response
+	      var responseHeaders = 'getAllResponseHeaders' in request ? parseHeaders(request.getAllResponseHeaders()) : null;
+	      var responseData = !config.responseType || config.responseType === 'text' ? request.responseText : request.response;
+	      var response = {
+	        data: responseData,
+	        // IE sends 1223 instead of 204 (https://github.com/mzabriskie/axios/issues/201)
+	        status: request.status === 1223 ? 204 : request.status,
+	        statusText: request.status === 1223 ? 'No Content' : request.statusText,
+	        headers: responseHeaders,
+	        config: config,
+	        request: request
+	      };
+	
+	      settle(resolve, reject, response);
+	
+	      // Clean up request
+	      request = null;
+	    };
+	
+	    // Handle low level network errors
+	    request.onerror = function handleError() {
+	      // Real errors are hidden from us by the browser
+	      // onerror should only fire if it's a network error
+	      reject(createError('Network Error', config));
+	
+	      // Clean up request
+	      request = null;
+	    };
+	
+	    // Handle timeout
+	    request.ontimeout = function handleTimeout() {
+	      reject(createError('timeout of ' + config.timeout + 'ms exceeded', config, 'ECONNABORTED'));
+	
+	      // Clean up request
+	      request = null;
+	    };
+	
+	    // Add xsrf header
+	    // This is only done if running in a standard browser environment.
+	    // Specifically not if we're in a web worker, or react-native.
+	    if (utils.isStandardBrowserEnv()) {
+	      var cookies = __webpack_require__(16);
+	
+	      // Add xsrf header
+	      var xsrfValue = config.withCredentials || isURLSameOrigin(config.url) ?
+	          cookies.read(config.xsrfCookieName) :
+	          undefined;
+	
+	      if (xsrfValue) {
+	        requestHeaders[config.xsrfHeaderName] = xsrfValue;
+	      }
+	    }
+	
+	    // Add headers to the request
+	    if ('setRequestHeader' in request) {
+	      utils.forEach(requestHeaders, function setRequestHeader(val, key) {
+	        if (typeof requestData === 'undefined' && key.toLowerCase() === 'content-type') {
+	          // Remove Content-Type if data is undefined
+	          delete requestHeaders[key];
+	        } else {
+	          // Otherwise add header to the request
+	          request.setRequestHeader(key, val);
+	        }
+	      });
+	    }
+	
+	    // Add withCredentials to request if needed
+	    if (config.withCredentials) {
+	      request.withCredentials = true;
+	    }
+	
+	    // Add responseType to request if needed
+	    if (config.responseType) {
+	      try {
+	        request.responseType = config.responseType;
+	      } catch (e) {
+	        if (request.responseType !== 'json') {
+	          throw e;
+	        }
+	      }
+	    }
+	
+	    // Handle progress if needed
+	    if (typeof config.progress === 'function') {
+	      if (config.method === 'post' || config.method === 'put') {
+	        request.upload.addEventListener('progress', config.progress);
+	      } else if (config.method === 'get') {
+	        request.addEventListener('progress', config.progress);
+	      }
+	    }
+	
+	    if (requestData === undefined) {
+	      requestData = null;
+	    }
+	
+	    // Send the request
+	    request.send(requestData);
+	  });
+	};
+
+
+/***/ },
+/* 8 */
+/***/ function(module, exports) {
+
+	// allows using all Jquery AJAX methods in Greasemonkey
+	// https://gist.github.com/damoclark/f01b957797b7dd2c33d6
+	// https://gist.github.com/monperrus/999065
+	// inspired from
+	//   http://ryangreenberg.com/archives/2010/03/greasemonkey_jquery.php
+	// works with JQuery 1.5
+	// (c) 2016 Damien Clark
+	// (c) 2011 Martin Monperrus
+	// (c) 2010 Ryan Greenberg
+	//
+	// Example usage with JQuery:
+	//   $.ajax({
+	//     url: '/p/',
+	//     xhr: function(){return new GmXhr();},
+	//     type: 'POST',
+	//     success: function(val){
+	//        ....
+	//     }
+	//   });
+	
+	'use strict';
+	
+	/**
+	 * xmlHttpRequest API wrapper for GM_xmlhttpRequest
+	 *
+	 * @returns {GmXhr} An instance with a compatible API to xmlHttpRequest
+	 */
+	function GmXhr() {
+	  this.type = null;
+	  this.url = null;
+	  this.async = null;
+	  this.username = null;
+	  this.password = null;
+	  this.status = null;
+	  this.headers = {};
+	  this.readyState = null;
+	}
+	
+	GmXhr.prototype.abort = function abort() {
+	  this.readyState = 0;
+	};
+	
+	GmXhr.prototype.getAllResponseHeaders = function getAllResponseHeaders() {
+	  if (this.readyState !== 4) return '';
+	  return this.responseHeaders;
+	};
+	
+	GmXhr.prototype.getResponseHeader = function getResponseHeader(name) {
+	  var regexp = new RegExp('^' + name + ': (.*)$', 'im');
+	  var match = regexp.exec(this.responseHeaders);
+	  if (match) { return match[1]; }
+	  return '';
+	};
+	
+	GmXhr.prototype.open = function open(type, url, async, username, password) {
+	  this.type = type
+	    ? type
+	    : null;
+	  this.url = url
+	    ? url
+	    : null;
+	  this.async = async
+	    ? async
+	    : null;
+	  this.username = username
+	    ? username
+	    : null;
+	  this.password = password
+	    ? password
+	    : null;
+	  this.readyState = 1;
+	};
+	
+	GmXhr.prototype.setRequestHeader = function setRequestHeader(name, value) {
+	  this.headers[name] = value;
+	};
+	
+	GmXhr.prototype.send = function send(data) {
+	  this.data = data;
+	  var that = this;
+	  // http://wiki.greasespot.net/GM_xmlhttpRequest
+	  GM_xmlhttpRequest({ /*eslint new-cap:0*/
+	    method: this.type,
+	    url: this.url,
+	    headers: this.headers,
+	    data: this.data,
+	    onload: function onload(rsp) {
+	      // Populate wrapper object with returned data
+	      // including the Greasemonkey specific "responseHeaders"
+	      for (var k in rsp) {
+	        if (rsp.hasOwnProperty(k)) {
+	          that[k] = rsp[k];
+	        }
+	      }
+	      // now we call onreadystatechange
+	      if (that.hasOwnProperty('onreadystatechange')) {
+	        that.onreadystatechange();
+	      } else { // otherwise call onload
+	        that.onload();
+	      }
+	    },
+	    onerror: function onerror(rsp) {
+	      for (var k in rsp) {
+	        if (rsp.hasOwnProperty(k)) {
+	          that[k] = rsp[k];
+	        }
+	      }
+	      // now we call onreadystatechange
+	      if (that.hasOwnProperty('onreadystatechange')) {
+	        that.onreadystatechange();
+	      } else {
+	        that.onerror(); // otherwise call onerror
+	      }
+	    }
+	  });
+	};
+	
+	module.exports = GmXhr;
+
+
+/***/ },
+/* 9 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var createError = __webpack_require__(10);
+	
+	/**
+	 * Resolve or reject a Promise based on response status.
+	 *
+	 * @param {Function} resolve A function that resolves the promise.
+	 * @param {Function} reject A function that rejects the promise.
+	 * @param {object} response The response.
+	 */
+	module.exports = function settle(resolve, reject, response) {
+	  var validateStatus = response.config.validateStatus;
+	  // Note: status is not exposed by XDomainRequest
+	  if (!response.status || !validateStatus || validateStatus(response.status)) {
+	    resolve(response);
+	  } else {
+	    reject(createError(
+	      'Request failed with status code ' + response.status,
+	      response.config,
+	      null,
+	      response
+	    ));
+	  }
+	};
+
+
+/***/ },
+/* 10 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var enhanceError = __webpack_require__(11);
+	
+	/**
+	 * Create an Error with the specified message, config, error code, and response.
+	 *
+	 * @param {string} message The error message.
+	 * @param {Object} config The config.
+	 * @param {string} [code] The error code (for example, 'ECONNABORTED').
+	 @ @param {Object} [response] The response.
+	 * @returns {Error} The created error.
+	 */
+	module.exports = function createError(message, config, code, response) {
+	  var error = new Error(message);
+	  return enhanceError(error, config, code, response);
+	};
+
+
+/***/ },
+/* 11 */
+/***/ function(module, exports) {
+
+	'use strict';
+	
+	/**
+	 * Update an Error with the specified config, error code, and response.
+	 *
+	 * @param {Error} error The error to update.
+	 * @param {Object} config The config.
+	 * @param {string} [code] The error code (for example, 'ECONNABORTED').
+	 @ @param {Object} [response] The response.
+	 * @returns {Error} The error.
+	 */
+	module.exports = function enhanceError(error, config, code, response) {
+	  error.config = config;
+	  if (code) {
+	    error.code = code;
+	  }
+	  error.response = response;
+	  return error;
+	};
+
+
+/***/ },
+/* 12 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var utils = __webpack_require__(2);
+	
+	function encode(val) {
+	  return encodeURIComponent(val).
+	    replace(/%40/gi, '@').
+	    replace(/%3A/gi, ':').
+	    replace(/%24/g, '$').
+	    replace(/%2C/gi, ',').
+	    replace(/%20/g, '+').
+	    replace(/%5B/gi, '[').
+	    replace(/%5D/gi, ']');
+	}
+	
+	/**
+	 * Build a URL by appending params to the end
+	 *
+	 * @param {string} url The base of the url (e.g., http://www.google.com)
+	 * @param {object} [params] The params to be appended
+	 * @returns {string} The formatted url
+	 */
+	module.exports = function buildURL(url, params, paramsSerializer) {
+	  /*eslint no-param-reassign:0*/
+	  if (!params) {
+	    return url;
+	  }
+	
+	  var serializedParams;
+	  if (paramsSerializer) {
+	    serializedParams = paramsSerializer(params);
+	  } else if (utils.isURLSearchParams(params)) {
+	    serializedParams = params.toString();
+	  } else {
+	    var parts = [];
+	
+	    utils.forEach(params, function serialize(val, key) {
+	      if (val === null || typeof val === 'undefined') {
+	        return;
+	      }
+	
+	      if (utils.isArray(val)) {
+	        key = key + '[]';
+	      }
+	
+	      if (!utils.isArray(val)) {
+	        val = [val];
+	      }
+	
+	      utils.forEach(val, function parseValue(v) {
+	        if (utils.isDate(v)) {
+	          v = v.toISOString();
+	        } else if (utils.isObject(v)) {
+	          v = JSON.stringify(v);
+	        }
+	        parts.push(encode(key) + '=' + encode(v));
+	      });
+	    });
+	
+	    serializedParams = parts.join('&');
+	  }
+	
+	  if (serializedParams) {
+	    url += (url.indexOf('?') === -1 ? '?' : '&') + serializedParams;
+	  }
+	
+	  return url;
+	};
+
+
+/***/ },
+/* 13 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var utils = __webpack_require__(2);
+	
+	/**
+	 * Parse headers into an object
+	 *
+	 * ```
+	 * Date: Wed, 27 Aug 2014 08:58:49 GMT
+	 * Content-Type: application/json
+	 * Connection: keep-alive
+	 * Transfer-Encoding: chunked
+	 * ```
+	 *
+	 * @param {String} headers Headers needing to be parsed
+	 * @returns {Object} Headers parsed into an object
+	 */
+	module.exports = function parseHeaders(headers) {
+	  var parsed = {};
+	  var key;
+	  var val;
+	  var i;
+	
+	  if (!headers) { return parsed; }
+	
+	  utils.forEach(headers.split('\n'), function parser(line) {
+	    i = line.indexOf(':');
+	    key = utils.trim(line.substr(0, i)).toLowerCase();
+	    val = utils.trim(line.substr(i + 1));
+	
+	    if (key) {
+	      parsed[key] = parsed[key] ? parsed[key] + ', ' + val : val;
+	    }
+	  });
+	
+	  return parsed;
+	};
+
+
+/***/ },
+/* 14 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var utils = __webpack_require__(2);
+	
+	module.exports = (
+	  utils.isStandardBrowserEnv() ?
+	
+	  // Standard browser envs have full support of the APIs needed to test
+	  // whether the request URL is of the same origin as current location.
+	  (function standardBrowserEnv() {
+	    var msie = /(msie|trident)/i.test(navigator.userAgent);
+	    var urlParsingNode = document.createElement('a');
+	    var originURL;
+	
+	    /**
+	    * Parse a URL to discover it's components
+	    *
+	    * @param {String} url The URL to be parsed
+	    * @returns {Object}
+	    */
+	    function resolveURL(url) {
+	      var href = url;
+	
+	      if (msie) {
+	        // IE needs attribute set twice to normalize properties
+	        urlParsingNode.setAttribute('href', href);
+	        href = urlParsingNode.href;
+	      }
+	
+	      urlParsingNode.setAttribute('href', href);
+	
+	      // urlParsingNode provides the UrlUtils interface - http://url.spec.whatwg.org/#urlutils
+	      return {
+	        href: urlParsingNode.href,
+	        protocol: urlParsingNode.protocol ? urlParsingNode.protocol.replace(/:$/, '') : '',
+	        host: urlParsingNode.host,
+	        search: urlParsingNode.search ? urlParsingNode.search.replace(/^\?/, '') : '',
+	        hash: urlParsingNode.hash ? urlParsingNode.hash.replace(/^#/, '') : '',
+	        hostname: urlParsingNode.hostname,
+	        port: urlParsingNode.port,
+	        pathname: (urlParsingNode.pathname.charAt(0) === '/') ?
+	                  urlParsingNode.pathname :
+	                  '/' + urlParsingNode.pathname
+	      };
+	    }
+	
+	    originURL = resolveURL(window.location.href);
+	
+	    /**
+	    * Determine if a URL shares the same origin as the current location
+	    *
+	    * @param {String} requestURL The URL to test
+	    * @returns {boolean} True if URL shares the same origin, otherwise false
+	    */
+	    return function isURLSameOrigin(requestURL) {
+	      var parsed = (utils.isString(requestURL)) ? resolveURL(requestURL) : requestURL;
+	      return (parsed.protocol === originURL.protocol &&
+	            parsed.host === originURL.host);
+	    };
+	  })() :
+	
+	  // Non standard browser envs (web workers, react-native) lack needed support.
+	  (function nonStandardBrowserEnv() {
+	    return function isURLSameOrigin() {
+	      return true;
+	    };
+	  })()
+	);
+
+
+/***/ },
+/* 15 */
+/***/ function(module, exports) {
+
+	'use strict';
+	
+	// btoa polyfill for IE<10 courtesy https://github.com/davidchambers/Base64.js
+	
+	var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+	
+	function E() {
+	  this.message = 'String contains an invalid character';
+	}
+	E.prototype = new Error;
+	E.prototype.code = 5;
+	E.prototype.name = 'InvalidCharacterError';
+	
+	function btoa(input) {
+	  var str = String(input);
+	  var output = '';
+	  for (
+	    // initialize result and counter
+	    var block, charCode, idx = 0, map = chars;
+	    // if the next str index does not exist:
+	    //   change the mapping table to "="
+	    //   check if d has no fractional digits
+	    str.charAt(idx | 0) || (map = '=', idx % 1);
+	    // "8 - idx % 1 * 8" generates the sequence 2, 4, 6, 8
+	    output += map.charAt(63 & block >> 8 - idx % 1 * 8)
+	  ) {
+	    charCode = str.charCodeAt(idx += 3 / 4);
+	    if (charCode > 0xFF) {
+	      throw new E();
+	    }
+	    block = block << 8 | charCode;
+	  }
+	  return output;
+	}
+	
+	module.exports = btoa;
+
+
+/***/ },
+/* 16 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	
+	var utils = __webpack_require__(2);
+	
+	module.exports = (
+	  utils.isStandardBrowserEnv() ?
+	
+	  // Standard browser envs support document.cookie
+	  (function standardBrowserEnv() {
+	    return {
+	      write: function write(name, value, expires, path, domain, secure) {
+	        var cookie = [];
+	        cookie.push(name + '=' + encodeURIComponent(value));
+	
+	        if (utils.isNumber(expires)) {
+	          cookie.push('expires=' + new Date(expires).toGMTString());
+	        }
+	
+	        if (utils.isString(path)) {
+	          cookie.push('path=' + path);
+	        }
+	
+	        if (utils.isString(domain)) {
+	          cookie.push('domain=' + domain);
+	        }
+	
+	        if (secure === true) {
+	          cookie.push('secure');
+	        }
+	
+	        document.cookie = cookie.join('; ');
+	      },
+	
+	      read: function read(name) {
+	        var match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+	        return (match ? decodeURIComponent(match[3]) : null);
+	      },
+	
+	      remove: function remove(name) {
+	        this.write(name, '', Date.now() - 86400000);
+	      }
+	    };
+	  })() :
+	
+	  // Non standard browser env (web workers, react-native) lack needed support.
+	  (function nonStandardBrowserEnv() {
+	    return {
+	      write: function write() {},
+	      read: function read() { return null; },
+	      remove: function remove() {}
+	    };
+	  })()
+	);
+
+
+/***/ },
+/* 17 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -672,13 +1338,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 8 */
+/* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var utils = __webpack_require__(2);
-	var transformData = __webpack_require__(9);
+	var transformData = __webpack_require__(19);
 	
 	/**
 	 * Dispatch a request to the server using whichever adapter
@@ -719,10 +1385,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	    adapter = config.adapter;
 	  } else if (typeof XMLHttpRequest !== 'undefined') {
 	    // For browsers use XHR adapter
-	    adapter = __webpack_require__(10);
+	    adapter = __webpack_require__(20);
 	  } else if (typeof process !== 'undefined') {
 	    // For node use HTTP adapter
-	    adapter = __webpack_require__(10);
+	    adapter = __webpack_require__(20);
 	  }
 	
 	  return Promise.resolve(config)
@@ -753,7 +1419,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 9 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -779,18 +1445,18 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 10 */
+/* 20 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	
 	var utils = __webpack_require__(2);
-	var settle = __webpack_require__(11);
-	var buildURL = __webpack_require__(14);
-	var parseHeaders = __webpack_require__(15);
-	var isURLSameOrigin = __webpack_require__(16);
-	var createError = __webpack_require__(12);
-	var btoa = (typeof window !== 'undefined' && window.btoa) || __webpack_require__(17);
+	var settle = __webpack_require__(9);
+	var buildURL = __webpack_require__(12);
+	var parseHeaders = __webpack_require__(13);
+	var isURLSameOrigin = __webpack_require__(14);
+	var createError = __webpack_require__(10);
+	var btoa = (typeof window !== 'undefined' && window.btoa) || __webpack_require__(15);
 	
 	module.exports = function xhrAdapter(config) {
 	  return new Promise(function dispatchXhrRequest(resolve, reject) {
@@ -884,7 +1550,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    // This is only done if running in a standard browser environment.
 	    // Specifically not if we're in a web worker, or react-native.
 	    if (utils.isStandardBrowserEnv()) {
-	      var cookies = __webpack_require__(18);
+	      var cookies = __webpack_require__(16);
 	
 	      // Add xsrf header
 	      var xsrfValue = config.withCredentials || isURLSameOrigin(config.url) ?
@@ -945,378 +1611,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 11 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var createError = __webpack_require__(12);
-	
-	/**
-	 * Resolve or reject a Promise based on response status.
-	 *
-	 * @param {Function} resolve A function that resolves the promise.
-	 * @param {Function} reject A function that rejects the promise.
-	 * @param {object} response The response.
-	 */
-	module.exports = function settle(resolve, reject, response) {
-	  var validateStatus = response.config.validateStatus;
-	  // Note: status is not exposed by XDomainRequest
-	  if (!response.status || !validateStatus || validateStatus(response.status)) {
-	    resolve(response);
-	  } else {
-	    reject(createError(
-	      'Request failed with status code ' + response.status,
-	      response.config,
-	      null,
-	      response
-	    ));
-	  }
-	};
-
-
-/***/ },
-/* 12 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var enhanceError = __webpack_require__(13);
-	
-	/**
-	 * Create an Error with the specified message, config, error code, and response.
-	 *
-	 * @param {string} message The error message.
-	 * @param {Object} config The config.
-	 * @param {string} [code] The error code (for example, 'ECONNABORTED').
-	 @ @param {Object} [response] The response.
-	 * @returns {Error} The created error.
-	 */
-	module.exports = function createError(message, config, code, response) {
-	  var error = new Error(message);
-	  return enhanceError(error, config, code, response);
-	};
-
-
-/***/ },
-/* 13 */
-/***/ function(module, exports) {
-
-	'use strict';
-	
-	/**
-	 * Update an Error with the specified config, error code, and response.
-	 *
-	 * @param {Error} error The error to update.
-	 * @param {Object} config The config.
-	 * @param {string} [code] The error code (for example, 'ECONNABORTED').
-	 @ @param {Object} [response] The response.
-	 * @returns {Error} The error.
-	 */
-	module.exports = function enhanceError(error, config, code, response) {
-	  error.config = config;
-	  if (code) {
-	    error.code = code;
-	  }
-	  error.response = response;
-	  return error;
-	};
-
-
-/***/ },
-/* 14 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var utils = __webpack_require__(2);
-	
-	function encode(val) {
-	  return encodeURIComponent(val).
-	    replace(/%40/gi, '@').
-	    replace(/%3A/gi, ':').
-	    replace(/%24/g, '$').
-	    replace(/%2C/gi, ',').
-	    replace(/%20/g, '+').
-	    replace(/%5B/gi, '[').
-	    replace(/%5D/gi, ']');
-	}
-	
-	/**
-	 * Build a URL by appending params to the end
-	 *
-	 * @param {string} url The base of the url (e.g., http://www.google.com)
-	 * @param {object} [params] The params to be appended
-	 * @returns {string} The formatted url
-	 */
-	module.exports = function buildURL(url, params, paramsSerializer) {
-	  /*eslint no-param-reassign:0*/
-	  if (!params) {
-	    return url;
-	  }
-	
-	  var serializedParams;
-	  if (paramsSerializer) {
-	    serializedParams = paramsSerializer(params);
-	  } else if (utils.isURLSearchParams(params)) {
-	    serializedParams = params.toString();
-	  } else {
-	    var parts = [];
-	
-	    utils.forEach(params, function serialize(val, key) {
-	      if (val === null || typeof val === 'undefined') {
-	        return;
-	      }
-	
-	      if (utils.isArray(val)) {
-	        key = key + '[]';
-	      }
-	
-	      if (!utils.isArray(val)) {
-	        val = [val];
-	      }
-	
-	      utils.forEach(val, function parseValue(v) {
-	        if (utils.isDate(v)) {
-	          v = v.toISOString();
-	        } else if (utils.isObject(v)) {
-	          v = JSON.stringify(v);
-	        }
-	        parts.push(encode(key) + '=' + encode(v));
-	      });
-	    });
-	
-	    serializedParams = parts.join('&');
-	  }
-	
-	  if (serializedParams) {
-	    url += (url.indexOf('?') === -1 ? '?' : '&') + serializedParams;
-	  }
-	
-	  return url;
-	};
-
-
-/***/ },
-/* 15 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var utils = __webpack_require__(2);
-	
-	/**
-	 * Parse headers into an object
-	 *
-	 * ```
-	 * Date: Wed, 27 Aug 2014 08:58:49 GMT
-	 * Content-Type: application/json
-	 * Connection: keep-alive
-	 * Transfer-Encoding: chunked
-	 * ```
-	 *
-	 * @param {String} headers Headers needing to be parsed
-	 * @returns {Object} Headers parsed into an object
-	 */
-	module.exports = function parseHeaders(headers) {
-	  var parsed = {};
-	  var key;
-	  var val;
-	  var i;
-	
-	  if (!headers) { return parsed; }
-	
-	  utils.forEach(headers.split('\n'), function parser(line) {
-	    i = line.indexOf(':');
-	    key = utils.trim(line.substr(0, i)).toLowerCase();
-	    val = utils.trim(line.substr(i + 1));
-	
-	    if (key) {
-	      parsed[key] = parsed[key] ? parsed[key] + ', ' + val : val;
-	    }
-	  });
-	
-	  return parsed;
-	};
-
-
-/***/ },
-/* 16 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var utils = __webpack_require__(2);
-	
-	module.exports = (
-	  utils.isStandardBrowserEnv() ?
-	
-	  // Standard browser envs have full support of the APIs needed to test
-	  // whether the request URL is of the same origin as current location.
-	  (function standardBrowserEnv() {
-	    var msie = /(msie|trident)/i.test(navigator.userAgent);
-	    var urlParsingNode = document.createElement('a');
-	    var originURL;
-	
-	    /**
-	    * Parse a URL to discover it's components
-	    *
-	    * @param {String} url The URL to be parsed
-	    * @returns {Object}
-	    */
-	    function resolveURL(url) {
-	      var href = url;
-	
-	      if (msie) {
-	        // IE needs attribute set twice to normalize properties
-	        urlParsingNode.setAttribute('href', href);
-	        href = urlParsingNode.href;
-	      }
-	
-	      urlParsingNode.setAttribute('href', href);
-	
-	      // urlParsingNode provides the UrlUtils interface - http://url.spec.whatwg.org/#urlutils
-	      return {
-	        href: urlParsingNode.href,
-	        protocol: urlParsingNode.protocol ? urlParsingNode.protocol.replace(/:$/, '') : '',
-	        host: urlParsingNode.host,
-	        search: urlParsingNode.search ? urlParsingNode.search.replace(/^\?/, '') : '',
-	        hash: urlParsingNode.hash ? urlParsingNode.hash.replace(/^#/, '') : '',
-	        hostname: urlParsingNode.hostname,
-	        port: urlParsingNode.port,
-	        pathname: (urlParsingNode.pathname.charAt(0) === '/') ?
-	                  urlParsingNode.pathname :
-	                  '/' + urlParsingNode.pathname
-	      };
-	    }
-	
-	    originURL = resolveURL(window.location.href);
-	
-	    /**
-	    * Determine if a URL shares the same origin as the current location
-	    *
-	    * @param {String} requestURL The URL to test
-	    * @returns {boolean} True if URL shares the same origin, otherwise false
-	    */
-	    return function isURLSameOrigin(requestURL) {
-	      var parsed = (utils.isString(requestURL)) ? resolveURL(requestURL) : requestURL;
-	      return (parsed.protocol === originURL.protocol &&
-	            parsed.host === originURL.host);
-	    };
-	  })() :
-	
-	  // Non standard browser envs (web workers, react-native) lack needed support.
-	  (function nonStandardBrowserEnv() {
-	    return function isURLSameOrigin() {
-	      return true;
-	    };
-	  })()
-	);
-
-
-/***/ },
-/* 17 */
-/***/ function(module, exports) {
-
-	'use strict';
-	
-	// btoa polyfill for IE<10 courtesy https://github.com/davidchambers/Base64.js
-	
-	var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-	
-	function E() {
-	  this.message = 'String contains an invalid character';
-	}
-	E.prototype = new Error;
-	E.prototype.code = 5;
-	E.prototype.name = 'InvalidCharacterError';
-	
-	function btoa(input) {
-	  var str = String(input);
-	  var output = '';
-	  for (
-	    // initialize result and counter
-	    var block, charCode, idx = 0, map = chars;
-	    // if the next str index does not exist:
-	    //   change the mapping table to "="
-	    //   check if d has no fractional digits
-	    str.charAt(idx | 0) || (map = '=', idx % 1);
-	    // "8 - idx % 1 * 8" generates the sequence 2, 4, 6, 8
-	    output += map.charAt(63 & block >> 8 - idx % 1 * 8)
-	  ) {
-	    charCode = str.charCodeAt(idx += 3 / 4);
-	    if (charCode > 0xFF) {
-	      throw new E();
-	    }
-	    block = block << 8 | charCode;
-	  }
-	  return output;
-	}
-	
-	module.exports = btoa;
-
-
-/***/ },
-/* 18 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	
-	var utils = __webpack_require__(2);
-	
-	module.exports = (
-	  utils.isStandardBrowserEnv() ?
-	
-	  // Standard browser envs support document.cookie
-	  (function standardBrowserEnv() {
-	    return {
-	      write: function write(name, value, expires, path, domain, secure) {
-	        var cookie = [];
-	        cookie.push(name + '=' + encodeURIComponent(value));
-	
-	        if (utils.isNumber(expires)) {
-	          cookie.push('expires=' + new Date(expires).toGMTString());
-	        }
-	
-	        if (utils.isString(path)) {
-	          cookie.push('path=' + path);
-	        }
-	
-	        if (utils.isString(domain)) {
-	          cookie.push('domain=' + domain);
-	        }
-	
-	        if (secure === true) {
-	          cookie.push('secure');
-	        }
-	
-	        document.cookie = cookie.join('; ');
-	      },
-	
-	      read: function read(name) {
-	        var match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
-	        return (match ? decodeURIComponent(match[3]) : null);
-	      },
-	
-	      remove: function remove(name) {
-	        this.write(name, '', Date.now() - 86400000);
-	      }
-	    };
-	  })() :
-	
-	  // Non standard browser env (web workers, react-native) lack needed support.
-	  (function nonStandardBrowserEnv() {
-	    return {
-	      write: function write() {},
-	      read: function read() { return null; },
-	      remove: function remove() {}
-	    };
-	  })()
-	);
-
-
-/***/ },
-/* 19 */
+/* 21 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -1336,7 +1631,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 20 */
+/* 22 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -1354,7 +1649,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 21 */
+/* 23 */
 /***/ function(module, exports) {
 
 	'use strict';

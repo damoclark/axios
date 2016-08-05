@@ -1,4 +1,4 @@
-# axios
+# axiosus
 
 [![npm version](https://img.shields.io/npm/v/axios.svg?style=flat-square)](https://www.npmjs.org/package/axios)
 [![build status](https://img.shields.io/travis/mzabriskie/axios.svg?style=flat-square)](https://travis-ci.org/mzabriskie/axios)
@@ -11,6 +11,7 @@ Promise based HTTP client for the browser and node.js
 ## Features
 
 - Make [XMLHttpRequests](https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest) from the browser
+- Make [GM_xmlhttpRequest](http://wiki.greasespot.net/GM_xmlhttpRequest) requests from [Greasemonkey](https://addons.mozilla.org/en-US/firefox/addon/greasemonkey/) for Firefox and derivatives including [Tampermonkey](https://tampermonkey.net/) for Chrome
 - Make [http](http://nodejs.org/api/http.html) requests from node.js
 - Supports the [Promise](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise) API
 - Intercept request and response
@@ -28,22 +29,16 @@ Latest ✔ | Latest ✔ | Latest ✔ | Latest ✔ | Latest ✔ | 8+ ✔ |
 
 ## Installing
 
-Using cdn:
-
-```html
-<script src="https://npmcdn.com/axios/dist/axios.min.js"></script>
-```
-
 Using npm:
 
 ```bash
-$ npm install axios
+$ npm install axiosus
 ```
 
-Using bower:
+Using browserify:
 
 ```bash
-$ bower install axios
+$ npm run browserify
 ```
 
 ## Example
@@ -52,7 +47,7 @@ Performing a `GET` request
 
 ```js
 // Make a request for a user with a given ID
-axios.get('/user?ID=12345')
+axiosus.get('/user?ID=12345')
   .then(function (response) {
     console.log(response);
   })
@@ -61,7 +56,7 @@ axios.get('/user?ID=12345')
   });
 
 // Optionally the request above could also be done as
-axios.get('/user', {
+axiosus.get('/user', {
     params: {
       ID: 12345
     }
@@ -77,7 +72,7 @@ axios.get('/user', {
 Performing a `POST` request
 
 ```js
-axios.post('/user', {
+axiosus.post('/user', {
     firstName: 'Fred',
     lastName: 'Flintstone'
   })
@@ -93,28 +88,28 @@ Performing multiple concurrent requests
 
 ```js
 function getUserAccount() {
-  return axios.get('/user/12345');
+  return axiosus.get('/user/12345');
 }
 
 function getUserPermissions() {
-  return axios.get('/user/12345/permissions');
+  return axiosus.get('/user/12345/permissions');
 }
 
-axios.all([getUserAccount(), getUserPermissions()])
-  .then(axios.spread(function (acct, perms) {
+axiosus.all([getUserAccount(), getUserPermissions()])
+  .then(axiosus.spread(function (acct, perms) {
     // Both requests are now complete
   }));
 ```
 
-## axios API
+## axiosus API
 
-Requests can be made by passing the relevant config to `axios`.
+Requests can be made by passing the relevant config to `axiosus`.
 
-##### axios(config)
+##### axiosus(config)
 
 ```js
 // Send a POST request
-axios({
+axiosus({
   method: 'post',
   url: '/user/12345',
   data: {
@@ -124,24 +119,24 @@ axios({
 });
 ```
 
-##### axios(url[, config])
+##### axiosus(url[, config])
 
 ```js
 // Send a GET request (default method)
-axios('/user/12345');
+axiosus('/user/12345');
 ```
 
 ### Request method aliases
 
 For convenience aliases have been provided for all supported request methods.
 
-##### axios.request(config)
-##### axios.get(url[, config])
-##### axios.delete(url[, config])
-##### axios.head(url[, config])
-##### axios.post(url[, data[, config]])
-##### axios.put(url[, data[, config]])
-##### axios.patch(url[, data[, config]])
+##### axiosus.request(config)
+##### axiosus.get(url[, config])
+##### axiosus.delete(url[, config])
+##### axiosus.head(url[, config])
+##### axiosus.post(url[, data[, config]])
+##### axiosus.put(url[, data[, config]])
+##### axiosus.patch(url[, data[, config]])
 
 ###### NOTE
 When using the alias methods `url`, `method`, and `data` properties don't need to be specified in config.
@@ -150,17 +145,17 @@ When using the alias methods `url`, `method`, and `data` properties don't need t
 
 Helper functions for dealing with concurrent requests.
 
-##### axios.all(iterable)
-##### axios.spread(callback)
+##### axiosus.all(iterable)
+##### axiosus.spread(callback)
 
 ### Creating an instance
 
-You can create a new instance of axios with a custom config.
+You can create a new instance of axiosus with a custom config.
 
-##### axios.create([config])
+##### axiosus.create([config])
 
 ```js
-var instance = axios.create({
+var instance = axiosus.create({
   baseURL: 'https://some-domain.com/api/',
   timeout: 1000,
   headers: {'X-Custom-Header': 'foobar'}
@@ -171,13 +166,13 @@ var instance = axios.create({
 
 The available instance methods are listed below. The specified config will be merged with the instance config.
 
-##### axios#request(config)
-##### axios#get(url[, config])
-##### axios#delete(url[, config])
-##### axios#head(url[, config])
-##### axios#post(url[, data[, config]])
-##### axios#put(url[, data[, config]])
-##### axios#patch(url[, data[, config]])
+##### axiosus#request(config)
+##### axiosus#get(url[, config])
+##### axiosus#delete(url[, config])
+##### axiosus#head(url[, config])
+##### axiosus#post(url[, data[, config]])
+##### axiosus#put(url[, data[, config]])
+##### axiosus#patch(url[, data[, config]])
 
 ## Request Config
 
@@ -192,7 +187,7 @@ These are the available config options for making requests. Only the `url` is re
   method: 'get', // default
 
   // `baseURL` will be prepended to `url` unless `url` is absolute.
-  // It can be convenient to set `baseURL` for an instance of axios to pass relative URLs
+  // It can be convenient to set `baseURL` for an instance of axiosus to pass relative URLs
   // to methods of that instance.
   baseURL: 'https://some-domain.com/api/',
 
@@ -317,7 +312,7 @@ The response for a request contains the following information.
   // `headers` the headers that the server responded with
   headers: {},
 
-  // `config` is the config that was provided to `axios` for the request
+  // `config` is the config that was provided to `axiosus` for the request
   config: {}
 }
 ```
@@ -325,7 +320,7 @@ The response for a request contains the following information.
 When using `then` or `catch`, you will receive the response as follows:
 
 ```js
-axios.get('/user/12345')
+axiosus.get('/user/12345')
   .then(function(response) {
     console.log(response.data);
     console.log(response.status);
@@ -339,19 +334,19 @@ axios.get('/user/12345')
 
 You can specify config defaults that will be applied to every request.
 
-### Global axios defaults
+### Global axiosus defaults
 
 ```js
-axios.defaults.baseURL = 'https://api.example.com';
-axios.defaults.headers.common['Authorization'] = AUTH_TOKEN;
-axios.defaults.headers.post['Content-Type'] = 'application/x-www-form-urlencoded';
+axiosus.defaults.baseURL = 'https://api.example.com';
+axiosus.defaults.headers.common['Authorization'] = AUTH_TOKEN;
+axiosus.defaults.headers.post['Content-Type'] = 'application/x-www-form-urlencoded';
 ```
 
 ### Custom instance defaults
 
 ```js
 // Set config defaults when creating the instance
-var instance = axios.create({
+var instance = axiosus.create({
   baseURL: 'https://api.example.com'
 });
 
@@ -366,7 +361,7 @@ Config will be merged with an order of precedence. The order is library defaults
 ```js
 // Create an instance using the config defaults provided by the library
 // At this point the timeout config value is `0` as is the default for the library
-var instance = axios.create();
+var instance = axiosus.create();
 
 // Override timeout default for the library
 // Now all requests will wait 2.5 seconds before timing out
@@ -384,7 +379,7 @@ You can intercept requests or responses before they are handled by `then` or `ca
 
 ```js
 // Add a request interceptor
-axios.interceptors.request.use(function (config) {
+axiosus.interceptors.request.use(function (config) {
     // Do something before request is sent
     return config;
   }, function (error) {
@@ -393,7 +388,7 @@ axios.interceptors.request.use(function (config) {
   });
 
 // Add a response interceptor
-axios.interceptors.response.use(function (response) {
+axiosus.interceptors.response.use(function (response) {
     // Do something with response data
     return response;
   }, function (error) {
@@ -405,21 +400,21 @@ axios.interceptors.response.use(function (response) {
 If you may need to remove an interceptor later you can.
 
 ```js
-var myInterceptor = axios.interceptors.request.use(function () {/*...*/});
-axios.interceptors.request.eject(myInterceptor);
+var myInterceptor = axiosus.interceptors.request.use(function () {/*...*/});
+axiosus.interceptors.request.eject(myInterceptor);
 ```
 
-You can add interceptors to a custom instance of axios.
+You can add interceptors to a custom instance of axiosus.
 
 ```js
-var instance = axios.create();
+var instance = axiosus.create();
 instance.interceptors.request.use(function () {/*...*/});
 ```
 
 ## Handling Errors
 
 ```js
-axios.get('/user/12345')
+axiosus.get('/user/12345')
   .catch(function (error) {
     if (error.response) {
       // The request was made, but the server responded with a status code
@@ -447,11 +442,11 @@ axios.get('/user/12345', {
 
 ## Semver
 
-Until axios reaches a `1.0` release, breaking changes will be released with a new minor version. For example `0.5.1`, and `0.5.4` will have the same API, but `0.6.0` will have breaking changes.
+Until axiosus reaches a `1.0` release, breaking changes will be released with a new minor version. For example `0.5.1`, and `0.5.4` will have the same API, but `0.6.0` will have breaking changes.
 
 ## Promises
 
-axios depends on a native ES6 Promise implementation to be [supported](http://caniuse.com/promises).
+axiosus depends on a native ES6 Promise implementation to be [supported](http://caniuse.com/promises).
 If your environment doesn't support ES6 Promises, you can [polyfill](https://github.com/jakearchibald/es6-promise).
 
 ## TypeScript
@@ -472,7 +467,7 @@ axios.get('/user?ID=12345');
 
 ## Credits
 
-axios is heavily inspired by the [$http service](https://docs.angularjs.org/api/ng/service/$http) provided in [Angular](https://angularjs.org/). Ultimately axios is an effort to provide a standalone `$http`-like service for use outside of Angular.
+axiosus like axios is heavily inspired by the [$http service](https://docs.angularjs.org/api/ng/service/$http) provided in [Angular](https://angularjs.org/). Ultimately axiosus is an effort to provide a standalone `$http`-like service for use in node, the browser or browser userscripting space.
 
 ## License
 

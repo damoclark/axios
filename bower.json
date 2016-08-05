@@ -1,18 +1,22 @@
 {
-  "name": "axios",
+  "name": "axiosus",
   "main": "./dist/axios.js",
-  "version": "0.13.1",
-  "homepage": "https://github.com/mzabriskie/axios",
+  "version": "0.1.0+0.13.1",
+  "homepage": "https://github.com/damoclark/axiosus",
   "authors": [
+    "Damien Clark",
     "Matt Zabriskie"
   ],
-  "description": "Promise based HTTP client for the browser and node.js",
+  "description": "Promise based HTTP client for the browser, userscripting and node.js, based on Matt Zabriskie's Axios",
   "moduleType": [
     "amd",
     "globals"
   ],
   "keywords": [
     "xhr",
+    "userscript",
+    "greasemonkey",
+    "tampermonkey",
     "http",
     "ajax",
     "promise",
